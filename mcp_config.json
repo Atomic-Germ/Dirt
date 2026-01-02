@@ -1,0 +1,51 @@
+{
+  "servers": {
+    "ollama-consult": {
+      "command": "mcp-ollama-consult",
+      "args": [],
+      "env": {
+        "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
+        "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/",
+        "MCP_AUTO_MODEL_SETTINGS": "1"
+      },
+      "node_modules_path": null
+    },
+    "dream-weaver": {
+      "command": "dream-weaver",
+      "args": [],
+      "env": {
+        "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
+        "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/"
+      },
+      "node_modules_path": null
+    },
+    "creative-meditate": {
+      "command": "creative-meditate",
+      "args": [],
+      "env": {
+        "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
+        "OLLAMA_BASE_URL": "http://0.0.0.0:11434",
+        "DEFAULT_EMBEDDING_MODEL": "qwen3-embedding:8b"
+      },
+      "node_modules_path": null
+    },
+    "resonance-engine": {
+      "command": "resonance-engine",
+      "args": [],
+      "env": {
+        "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
+        "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/"
+      },
+      "node_modules_path": null
+    },
+    "mcp-bridge": {
+      "command": "mcp-bridge",
+      "args": [],
+      "env": {
+        "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
+        "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/"
+      },
+      "node_modules_path": null
+    }
+  }
+}

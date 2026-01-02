@@ -1,0 +1,15 @@
+[project]
+name = "dirt"
+version = "0.2.0"
+description = "Pluggable Chat and MCP Client System with Environment Variables and STDIO Compatibility"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "ollama>=0.1.0"
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
