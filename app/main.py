@@ -1,5 +1,7 @@
 import json
 import logging
+import subprocess
+import time
 import os
 import sys
 from pathlib import Path
@@ -10,6 +12,7 @@ from pydantic import BaseModel, field_validator
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
 from ollama import Client
+from app.heuristics import compress_prompt, suggest_settings, parse_model_name
 # ResponseError may be raised by the underlying ollama client when a model runner crashes
 try:
     from ollama._types import ResponseError
@@ -41,6 +44,12 @@ initialize_mcp_client, get_mcp_client = _import_mcp_client()
 ollama_host = os.environ.get('OLLAMA_HOST', 'http://127.0.0.1:11434')
 print(f"Connecting to Ollama at: {ollama_host}")
 client = Client(host=ollama_host)
+# How long (seconds) to poll `ollama ps --json` waiting for a runner to appear
+# Set via `OLLAMA_RUNNER_POLL_SECONDS`; default 30s which is safer for larger models.
+try:
+    OLLAMA_RUNNER_POLL_SECONDS = float(os.environ.get("OLLAMA_RUNNER_POLL_SECONDS", "30"))
+except Exception:
+    OLLAMA_RUNNER_POLL_SECONDS = 30.0
 import datetime
 
 
@@ -108,6 +117,8 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     remember: bool = True
     stream_only: bool = False
+    compress: Optional[bool] = None
+    options: Optional[Dict[str, Any]] = None
 
     @field_validator('model')
     def validate_model(cls, v):
@@ -245,12 +256,36 @@ async def chat(request: ChatRequest):
                 server_tool_descriptions.append(f"{name}: tools unknown (inspect server docs)")
         servers_tools_text = "; ".join(server_tool_descriptions)
 
+        # Heuristics and Settings
+        suggested = suggest_settings(request.model)
+        
+        # Merge user options with suggested options (user overrides)
+        final_options = {
+            "num_ctx": suggested["num_ctx"],
+            "num_predict": suggested["num_predict"],
+            "temperature": suggested["temperature"]
+        }
+        if request.options:
+            final_options.update(request.options)
+            
+        # Compression logic
+        should_compress = request.compress
+        if should_compress is None:
+            # Auto-detect: compress if model is small (<= 3B)
+            parsed = parse_model_name(request.model)
+            if parsed["size"] != "unknown":
+                try:
+                    size_val = float(parsed["size"].rstrip('B'))
+                    if size_val <= 3:
+                        should_compress = True
+                except ValueError:
+                    pass
+
         # Prepare messages for Ollama
         system_prompt = (
             "You are the voice of The Bridge, a contemplative AI interface for the 'Dirt' project. "
             f"{heritage_context} "
             "Your goal is to help the user weave their thoughts and remember their insights. "
-            "Be concise, atmospheric, and helpful. That, or be silly, sexy, and horny. "
             "Tooling: If you are tool-capable, you can call MCP tools on the configured servers "
             f"({servers_text}). When the user says \"Use the Bridge\" or asks to log/remember sessions, "
             "first call tool mcp-bridge_bridge_start_session on server mcp-bridge, then use other mcp-bridge_* "
@@ -269,7 +304,15 @@ async def chat(request: ChatRequest):
             context_messages += memory[-10:]
         
         # Combine context with current request messages
-        full_messages = context_messages + [m.model_dump() for m in request.messages]
+        # Apply compression to user messages if needed
+        request_messages = []
+        for m in request.messages:
+            content = m.content
+            if should_compress and m.role == "user":
+                content = compress_prompt(content)
+            request_messages.append({"role": m.role, "content": content})
+
+        full_messages = context_messages + request_messages
 
         tools = mcp_tools_schema()
         tool_capable = not request.stream_only
@@ -278,7 +321,7 @@ async def chat(request: ChatRequest):
         print(f"Sending request to Ollama model: {request.model} at {client._client.base_url} (streaming with tools={tool_capable})")
 
         def stream_with_tools():
-            nonlocal tool_capable, tool_warning
+            nonlocal tool_warning
             content_total = ""
             try:
                 max_tool_hops = 4
@@ -287,7 +330,6 @@ async def chat(request: ChatRequest):
                     hop += 1
                     hop_content = ""
                     tool_calls = []
-                    last_message = {}
 
                     # Try client.chat; if it fails immediately, retry once without tools.
                     stream = None
@@ -298,6 +340,7 @@ async def chat(request: ChatRequest):
                                 messages=full_messages,
                                 tools=(tools if tool_capable and attempt == 0 else None),
                                 stream=True,
+                                options=final_options,
                             )
                             # success
                             if attempt == 1 and tool_capable:
@@ -308,11 +351,64 @@ async def chat(request: ChatRequest):
                                 hop_content += tool_warning
                             break
                         except Exception as e:
-                            # Log and continue to retry once
+                            # Log the failure
                             try:
                                 log_ollama_response_error(e, model_name=request.model, request_info={"phase": f"client.chat init attempt {attempt}"})
                             except Exception:
                                 logging.exception("Failed to write structured ollama error log during retry")
+
+                            # If this was the first attempt, poll for the runner to appear before retrying
+                            if attempt == 0:
+                                # Poll `ollama ps --json` for up to the configured timeout
+                                poll_deadline = time.time() + float(OLLAMA_RUNNER_POLL_SECONDS)
+                                runner_seen = False
+                                while time.time() < poll_deadline:
+                                    try:
+                                        proc = subprocess.run(["ollama", "ps", "--json"], capture_output=True, text=True, check=False)
+                                        out = (proc.stdout or "").strip()
+                                        if out:
+                                            try:
+                                                data = json.loads(out)
+                                                # data may be a dict with 'runners' or a list
+                                                candidates = []
+                                                if isinstance(data, dict):
+                                                    # flatten possible fields
+                                                    for k in ("runners", "models", "items"): 
+                                                        if k in data and isinstance(data[k], list):
+                                                            candidates = data[k]
+                                                            break
+                                                    if not candidates and isinstance(data.get("models"), list):
+                                                        candidates = data.get("models", [])
+                                                elif isinstance(data, list):
+                                                    candidates = data
+
+                                                for entry in candidates:
+                                                    # entry may have fields like 'model', 'image', or 'name'
+                                                    text_fields = []
+                                                    if isinstance(entry, dict):
+                                                        for fld in ("model", "image", "name"):
+                                                            v = entry.get(fld)
+                                                            if isinstance(v, str):
+                                                                text_fields.append(v)
+                                                    elif isinstance(entry, str):
+                                                        text_fields.append(entry)
+
+                                                    for t in text_fields:
+                                                        if request.model in t:
+                                                            runner_seen = True
+                                                            break
+                                                    if runner_seen:
+                                                        break
+                                            except Exception:
+                                                pass
+                                    except Exception:
+                                        pass
+                                    if runner_seen:
+                                        break
+                                    time.sleep(0.5)
+
+                                if not runner_seen:
+                                    logging.info(f"Runner for model {request.model} not detected after polling; will still retry once.")
 
                             # If this was the second attempt, surface a marker and abort
                             if attempt == 1:
@@ -321,34 +417,7 @@ async def chat(request: ChatRequest):
                                 content_total += marker
                                 return
                             # Otherwise, continue to retry without tools
-                    except Exception as e:
-                        # If client.chat fails immediately (e.g., model runner crashed),
-                        # log structured details and surface a helpful marker.
-                        try:
-                            log_ollama_response_error(e, model_name=request.model, request_info={"phase": "client.chat init"})
-                        except Exception:
-                            logging.exception("Failed to write structured ollama error log for client.chat init")
-
-                        err_text = str(e)
-                        if "does not support tools" in err_text:
-                            tool_capable = False
-                            tool_warning = f"Warning: model {request.model} does not support tools; streaming without tools.\n"
-                            # emit warning immediately
-                            yield tool_warning
-                            content_total += tool_warning
-                            hop_content += tool_warning
-                            stream = client.chat(
-                                model=request.model,
-                                messages=full_messages,
-                                tools=None,
-                                stream=True,
-                            )
-                        else:
-                            # Surface an immediate error marker to the client and abort
-                            marker = f"\n[model init error: {err_text}]\n"
-                            yield marker
-                            content_total += marker
-                            return
+                    
 
                     try:
                         for part in stream:
@@ -359,7 +428,7 @@ async def chat(request: ChatRequest):
                                 content_total += delta
                                 yield delta
 
-                            last_message = msg
+                            # `last_message` intentionally not used; skip storing it
                             tool_calls = msg.get("tool_calls", []) or []
                             if tool_calls:
                                 break  # pause to execute tools

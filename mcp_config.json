@@ -1,19 +1,14 @@
 {
   "servers": {
-    "ollama_orchestrator": {
-      "command": "ollama",
-      "args": ["run", "erukude/multiagent-orchestrator:3b"],
-      "env": {},
-      "node_modules_path": null,
-      "tools": []
-    },
     "ollama-consult": {
       "command": "mcp-ollama-consult",
       "args": [],
       "env": {
         "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
         "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/",
-        "MCP_AUTO_MODEL_SETTINGS": "1"
+        "MCP_AUTO_MODEL_SETTINGS": "1",
+        "OLLAMA_HOST": "http://127.0.0.1:11434",
+        "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
       },
       "node_modules_path": null,
       "tools": ["consult", "analyze"]
