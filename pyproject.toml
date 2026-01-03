@@ -1,6 +1,6 @@
 [project]
 name = "dirt"
-version = "0.3.0"
+version = "2.3.0"
 description = "Pluggable Chat and MCP Client System with Environment Variables and STDIO Compatibility"
 readme = "README.md"
 requires-python = ">=3.12"

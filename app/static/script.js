@@ -301,7 +301,8 @@ function renderTags(contentDiv, state) {
 
     const mainBlock = document.createElement('div');
     mainBlock.className = 'main-text';
-    mainBlock.textContent = state.plain;
+    // If the plain text is JSON (or contains a JSON snippet), render it as a code block
+    renderPossiblyJson(mainBlock, state.plain);
     contentDiv.appendChild(mainBlock);
 
     state.segments.forEach((seg) => {
@@ -318,7 +319,8 @@ function renderTags(contentDiv, state) {
         const body = document.createElement('div');
         body.className = 'think-body';
         const trailing = seg.inTag ? ' …' : '';
-        body.textContent = seg.content + trailing;
+        // Try to render JSON snippets inside the think body as code blocks
+        renderPossiblyJson(body, seg.content + trailing);
 
         const toggle = document.createElement('button');
         toggle.type = 'button';
@@ -336,6 +338,60 @@ function renderTags(contentDiv, state) {
         block.appendChild(toggle);
         contentDiv.appendChild(block);
     });
+}
+
+function renderPossiblyJson(container, text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) {
+        container.textContent = '';
+        return;
+    }
+
+    // Try full-text JSON parse
+    try {
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            const parsed = JSON.parse(trimmed);
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(parsed, null, 2);
+            pre.className = 'json-block';
+            container.appendChild(pre);
+            return;
+        }
+    } catch (e) {
+        // fallthrough to snippet extraction
+    }
+
+    // Attempt to find a JSON substring inside the text
+    const firstOpen = text.indexOf('{');
+    const lastClose = text.lastIndexOf('}');
+    if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+        const before = text.slice(0, firstOpen);
+        const candidate = text.slice(firstOpen, lastClose + 1);
+        const after = text.slice(lastClose + 1);
+        try {
+            const parsed = JSON.parse(candidate);
+            if (before) {
+                const p = document.createElement('div');
+                p.textContent = before;
+                container.appendChild(p);
+            }
+            const pre = document.createElement('pre');
+            pre.textContent = JSON.stringify(parsed, null, 2);
+            pre.className = 'json-block';
+            container.appendChild(pre);
+            if (after) {
+                const p2 = document.createElement('div');
+                p2.textContent = after;
+                container.appendChild(p2);
+            }
+            return;
+        } catch (e) {
+            // not JSON, fall through to plain
+        }
+    }
+
+    // Default: plain text
+    container.textContent = text;
 }
 
 // Auto-resize textarea
