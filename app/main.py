@@ -289,14 +289,46 @@ async def chat(request: ChatRequest):
                     tool_calls = []
                     last_message = {}
 
-                    try:
-                        stream = client.chat(
-                            model=request.model,
-                            messages=full_messages,
-                            tools=tools if tool_capable else None,
-                            stream=True,
-                        )
+                    # Try client.chat; if it fails immediately, retry once without tools.
+                    stream = None
+                    for attempt in (0, 1):
+                        try:
+                            stream = client.chat(
+                                model=request.model,
+                                messages=full_messages,
+                                tools=(tools if tool_capable and attempt == 0 else None),
+                                stream=True,
+                            )
+                            # success
+                            if attempt == 1 and tool_capable:
+                                # we retried without tools; warn the user
+                                tool_warning = f"Warning: model {request.model} failed with tools; retrying without tools.\n"
+                                yield tool_warning
+                                content_total += tool_warning
+                                hop_content += tool_warning
+                            break
+                        except Exception as e:
+                            # Log and continue to retry once
+                            try:
+                                log_ollama_response_error(e, model_name=request.model, request_info={"phase": f"client.chat init attempt {attempt}"})
+                            except Exception:
+                                logging.exception("Failed to write structured ollama error log during retry")
+
+                            # If this was the second attempt, surface a marker and abort
+                            if attempt == 1:
+                                marker = f"\n[model init error after retry: {str(e)}]\n"
+                                yield marker
+                                content_total += marker
+                                return
+                            # Otherwise, continue to retry without tools
                     except Exception as e:
+                        # If client.chat fails immediately (e.g., model runner crashed),
+                        # log structured details and surface a helpful marker.
+                        try:
+                            log_ollama_response_error(e, model_name=request.model, request_info={"phase": "client.chat init"})
+                        except Exception:
+                            logging.exception("Failed to write structured ollama error log for client.chat init")
+
                         err_text = str(e)
                         if "does not support tools" in err_text:
                             tool_capable = False
@@ -312,7 +344,11 @@ async def chat(request: ChatRequest):
                                 stream=True,
                             )
                         else:
-                            raise
+                            # Surface an immediate error marker to the client and abort
+                            marker = f"\n[model init error: {err_text}]\n"
+                            yield marker
+                            content_total += marker
+                            return
 
                     try:
                         for part in stream:
@@ -422,6 +458,11 @@ async def chat(request: ChatRequest):
 
         return StreamingResponse(stream_with_tools(), media_type="text/plain")
     except Exception as e:
+        # Log structured details for unexpected failures in the chat endpoint
+        try:
+            log_ollama_response_error(e, model_name=(request.model if 'request' in locals() else None), request_info={"phase": "chat_endpoint"})
+        except Exception:
+            logging.exception("Failed to write structured ollama error log in chat endpoint")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -629,6 +670,23 @@ async def weave_dream(request: DreamRequest):
     if result is None:
         raise HTTPException(status_code=500, detail="Dream weaving failed")
     return result
+
+
+@app.post("/seed")
+async def seed_content(request: SeedRequest):
+    """Save a piece of content into the Bridge memory (seed/heritage).
+
+    The frontend uses this to store tool outputs or user-provided snippets.
+    """
+    try:
+        memory = load_memory()
+        # Use a simple schema: store as user-provided content with optional tags
+        entry = {"role": "assistant", "content": request.content, "tags": request.tags}
+        memory.append(entry)
+        save_memory(memory)
+        return {"status": "seeded", "count": len(memory)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to seed content: {e}")
 
 # Serve static files
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
