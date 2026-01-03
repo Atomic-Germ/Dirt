@@ -506,6 +506,39 @@ async def get_mcp_server_config(server_name: str):
         "tools": config.tools,
     }
 
+
+class DreamRequest(BaseModel):
+    path: str
+    pattern: Optional[str] = "**/*.md"
+    length: int = 10
+    seed: Optional[str] = None
+
+    @field_validator('path')
+    def validate_path(cls, v):
+        if not v or not isinstance(v, str) or len(v.strip()) == 0:
+            raise ValueError('Path must be a non-empty string')
+        return v.strip()
+
+    @field_validator('length')
+    def validate_length(cls, v):
+        if not isinstance(v, int) or v <= 0 or v > 1000:
+            raise ValueError('Length must be a positive integer <= 1000')
+        return v
+
+
+@app.post("/dream")
+async def weave_dream(request: DreamRequest):
+    """Call the dream-weaver MCP tool to weave a short dream from local files."""
+    mcp_client = get_mcp_client()
+    args = {"path": request.path, "pattern": request.pattern, "length": request.length}
+    if request.seed:
+        args["seed"] = request.seed
+
+    result = mcp_client.call_tool("dream-weaver", "weave_dream", args)
+    if result is None:
+        raise HTTPException(status_code=500, detail="Dream weaving failed")
+    return result
+
 # Serve static files
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 

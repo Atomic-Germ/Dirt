@@ -90,3 +90,14 @@ def test_call_mcp_tool(app_main):
     r = client.post('/mcp/tools/call', json=payload)
     assert r.status_code == 200
     assert r.json().get('called') == 'test-server:echo'
+
+
+def test_weave_dream(app_main):
+    main = app_main
+    client = TestClient(main.app)
+
+    payload = {'path': './notes', 'pattern': '**/*.md', 'length': 5, 'seed': 'rose'}
+    r = client.post('/dream', json=payload)
+    assert r.status_code == 200
+    # Fake client returns a simple 'called' marker
+    assert r.json().get('called') == 'dream-weaver:weave_dream'

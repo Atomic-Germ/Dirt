@@ -6,6 +6,9 @@ const clearBtn = document.getElementById('clear-btn');
 const statusText = document.getElementById('status-text');
 const rememberCheck = document.getElementById('remember-check');
 const streamToggle = document.getElementById('stream-toggle');
+const dreamBtn = document.getElementById('dream-btn');
+const dreamPath = document.getElementById('dream-path');
+const dreamSeed = document.getElementById('dream-seed');
 
 let isTyping = false;
 
@@ -315,3 +318,27 @@ clearBtn.addEventListener('click', async () => {
 // Initialize
 loadModels();
 loadHistory();
+
+// Dream button handler
+if (dreamBtn) {
+    dreamBtn.addEventListener('click', async () => {
+        const path = dreamPath.value || '.';
+        const seed = dreamSeed.value || undefined;
+        statusText.textContent = 'Weaving dream...';
+        try {
+            const resp = await fetch('/dream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path, length: 10, seed })
+            });
+            if (!resp.ok) throw new Error('Dream failed');
+            const result = await resp.json();
+            const content = JSON.stringify(result, null, 2);
+            addMessage('assistant', content);
+            statusText.textContent = 'Ready';
+        } catch (e) {
+            console.error('Dream error', e);
+            statusText.textContent = 'Dream error';
+        }
+    });
+}
