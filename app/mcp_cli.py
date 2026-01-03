@@ -24,7 +24,12 @@ import sys
 import json
 import argparse
 from typing import Optional
-from mcp_client import initialize_mcp_client, get_mcp_client
+
+try:
+    # Package import
+    from app.mcp_client import initialize_mcp_client, get_mcp_client
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from mcp_client import initialize_mcp_client, get_mcp_client
 
 def list_servers():
     """List all configured and active MCP servers."""

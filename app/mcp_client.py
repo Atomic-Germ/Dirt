@@ -10,6 +10,7 @@ import json
 import asyncio
 import subprocess
 import sys
+import select
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
@@ -51,6 +52,7 @@ class MCPClient:
         self._shutdown_event = threading.Event()
         self.response_queues: Dict[str, queue.Queue] = {}
         self._id_counters: Dict[str, Any] = {}
+        self._counter_locks: Dict[str, threading.Lock] = {}
 
     def load_servers_from_env(self) -> None:
         """
@@ -206,6 +208,7 @@ class MCPClient:
             # Initialize response queue and id counter for this server
             self.response_queues[server_name] = queue.Queue()
             self._id_counters[server_name] = itertools.count(1)
+            self._counter_locks[server_name] = threading.Lock()
 
             return True
 
@@ -290,10 +293,16 @@ class MCPClient:
         return results
 
     def _handle_server_output(self, server_name: str, stream, stream_type: str) -> None:
-        """Handle stdout/stderr output from a server process."""
+        """Handle stdout/stderr output from a server process with timeout."""
         try:
-            for line in iter(stream.readline, ''):
-                if self._shutdown_event.is_set():
+            while not self._shutdown_event.is_set():
+                # Use select to wait for data with timeout
+                ready, _, _ = select.select([stream], [], [], 1.0)  # 1 second timeout
+                if not ready:
+                    continue  # Timeout, check shutdown event
+
+                line = stream.readline()
+                if not line:  # EOF
                     break
 
                 # Process the output line
@@ -353,11 +362,13 @@ class MCPClient:
 
         q = self.response_queues.get(server_name)
         counter = self._id_counters.get(server_name)
-        if q is None or counter is None:
+        lock = self._counter_locks.get(server_name)
+        if q is None or counter is None or lock is None:
             logger.error(f"No response queue for server {server_name}")
             return None
 
-        req_id = next(counter)
+        with lock:
+            req_id = next(counter)
         message = {
             "jsonrpc": "2.0",
             "id": req_id,

@@ -10,6 +10,25 @@ dependencies = [
     "ollama>=0.1.0"
 ]
 
+[project.scripts]
+dirt-api = "app.main:run"
+dirt-mcp = "app.mcp_cli:main"
+
+[tool.hatch.build]
+include = [
+    "app",
+    "README.md",
+    "LICENSE",
+    "mcp_config.json",
+    "heritage_context.json"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.hatch.build.targets.sdist]
+include = ["app", "README.md", "LICENSE", "mcp_config.json", "heritage_context.json"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

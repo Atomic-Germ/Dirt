@@ -13,7 +13,7 @@ import tempfile
 import shutil
 import time
 import textwrap
-from mcp_client import MCPClient, initialize_mcp_client
+from app.mcp_client import MCPClient, initialize_mcp_client
 
 def test_environment_variable_config():
     """Test loading configuration from environment variables."""
@@ -121,7 +121,7 @@ def test_server_management():
     client = MCPClient()
 
     # Add a mock server that just runs 'echo' (should work on any system)
-    from mcp_client import MCPServerConfig
+    from app.mcp_client import MCPServerConfig
     mock_config = MCPServerConfig(
         name="mock-server",
         command="echo",
@@ -155,7 +155,7 @@ def test_message_sending():
     # Create a client with a mock server
     client = MCPClient()
 
-    from mcp_client import MCPServerConfig
+    from app.mcp_client import MCPServerConfig
     mock_config = MCPServerConfig(
         name="message-test-server",
         command="cat",  # cat will echo back what we send
@@ -190,7 +190,7 @@ def test_tool_calling():
     assert result is None, "Tool call on non-existent server should return None"
 
     # Test with a tiny echo server that returns JSON-RPC result
-    from mcp_client import MCPServerConfig
+    from app.mcp_client import MCPServerConfig
     echo_script = "\n".join([
         "import sys, json",
         "",

@@ -23,11 +23,21 @@ A FastAPI-based MCP client that auto-starts configured stdio MCP servers, discov
 - Python 3.12+
 - Installed MCP servers accessible on PATH (the repo includes a sample `mcp_config.json` pointing to stdio servers like `dream-weaver` and `creative-meditate`).
 
-### Install Python dependencies
+### Install from source (editable or wheel)
 
 ```bash
+# Editable dev install
 pip install -e .
+
+# Or build + install a wheel
+pip install build
+python -m build
+pip install dist/dirt-0.2.0-py3-none-any.whl
 ```
+
+This installs two entry points:
+- `dirt-api` — runs the FastAPI server (wraps `uvicorn app.main:app`).
+- `dirt-mcp` — CLI for listing/starting/stopping servers and calling tools.
 
 ## Configuration
 
@@ -87,7 +97,7 @@ Create a `mcp_config.json` file:
 ### Run the API + chat
 
 ```bash
-python app/main.py
+dirt-api
 ```
 
 - Chat endpoint: `POST /chat` (uses Ollama; models can return `call_mcp_tool` actions and the server will execute them).
@@ -118,13 +128,13 @@ curl -X POST http://localhost:8000/mcp/tools/call \
 
 ```bash
 # List configured servers
-python app/mcp_cli.py list
+dirt-mcp list
 
 # Start a server
-python app/mcp_cli.py start ollama-consult
+dirt-mcp start ollama-consult
 
 # Call a tool
-python app/mcp_cli.py call ollama-consult consult_ollama --args '{"prompt": "Hello, world!"}'
+dirt-mcp call ollama-consult consult_ollama --args '{"prompt": "Hello, world!"}'
 ```
 
 ### Python API
@@ -227,6 +237,60 @@ The `MCPClient` can be extended for other transports or health monitoring; tool 
 1. Ensure the user has execute permissions on Node.js binaries
 2. Check file system permissions for configured paths
 3. Verify the server can write to configured directories
+
+---
+
+## __Project Purpose & Architecture__
+
+__Dirt__ is a FastAPI-based MCP (Model Context Protocol) client that serves as a "contemplative AI interface" called "The Bridge". It provides:
+
+1. __Multi-modal AI Chat Interface__: Web-based chat with Ollama models that can call MCP server tools
+2. __MCP Server Management__: Auto-starts and manages stdio-based MCP servers (ollama-consult, dream-weaver, creative-meditate, resonance-engine, mcp-bridge)
+3. __Tool Calling System__: Models can invoke MCP tools through a `call_mcp_tool` schema
+4. __Memory & Heritage System__: Persistent conversation memory and "heritage context" for long-term knowledge retention
+5. __REST/CLI APIs__: Full programmatic access to MCP server lifecycle and tool calls
+
+## __Code Structure Map__
+
+📁 /home/atomic-germ/Documents/Code/Dirt/
+├── 📄 pyproject.toml          # Python project config (FastAPI + Ollama deps)
+├── 📄 README.md               # Comprehensive documentation
+├── 📄 mcp_config.json         # MCP server configurations (5 servers)
+├── 📄 heritage_context.json   # Long-term knowledge artifacts (currently empty)
+├── 📄 bridge_memory.json      # Chat conversation history
+└── 📁 app/
+    ├── 📄 __init__.py
+    ├── 📄 main.py             # FastAPI app with chat, MCP management, streaming
+    ├── 📄 mcp_client.py       # Core MCP client (stdio subprocess management)
+    ├── 📄 mcp_cli.py          # Command-line interface for MCP operations
+    ├── 📄 test_mcp_client.py  # Unit tests
+    └── 📁 static/             # Web interface
+        ├── 📄 index.html      # Chat UI ("The Bridge" interface)
+        ├── 📄 script.js       # Frontend logic (streaming, tag processing)
+        └── 📄 style.css       # Dark theme with think-block collapsible sections
+
+## __Key Components__
+
+### __Backend (FastAPI)__
+
+- __Chat Endpoint__ (`/chat`): Streaming responses with tool calling, memory persistence, heritage context injection
+- __MCP Management__: Start/stop servers, tool discovery, tool invocation
+- __Memory System__: Conversation history + heritage artifacts for context
+- __Model Integration__: Ollama client with automatic tool capability detection
+
+### __MCP Client System__
+
+- __Server Lifecycle__: Auto-starts configured MCP servers as subprocesses
+- __JSON-RPC Communication__: Stdio-based MCP protocol implementation
+- __Tool Discovery__: Dynamic tool enumeration from active servers
+- __Configuration__: Environment variables + JSON config files
+
+### __Web Interface__
+
+- __Chat UI__: Dark-themed interface with collapsible "think blocks" for AI reasoning
+- __Streaming__: Real-time response rendering with tag processing
+- __Memory Controls__: Clear history, model selection, streaming toggle
+
 
 ## License
 

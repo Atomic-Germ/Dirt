@@ -5,8 +5,135 @@ const modelSelect = document.getElementById('model-select');
 const clearBtn = document.getElementById('clear-btn');
 const statusText = document.getElementById('status-text');
 const rememberCheck = document.getElementById('remember-check');
+const streamToggle = document.getElementById('stream-toggle');
 
 let isTyping = false;
+
+function createTagState() {
+    return {
+        plain: '',
+        segments: [], // {name, content, inTag, expanded, userToggled, sawClose}
+        current: null,
+        buffer: ''
+    };
+}
+
+function processTagChunk(state, chunk, flush = false) {
+    const data = state.buffer + chunk;
+    let idx = 0;
+
+    while (true) {
+        const nextOpen = data.indexOf('<', idx);
+        if (nextOpen === -1) break;
+        const nextClose = data.indexOf('>', nextOpen + 1);
+        if (nextClose === -1) break; // wait for more data
+
+        const tokenRaw = data.slice(nextOpen, nextClose + 1);
+        const openMatch = tokenRaw.match(/^<([a-zA-Z0-9_-]+)>$/);
+        const closeMatch = tokenRaw.match(/^<\/([a-zA-Z0-9_-]+)>$/);
+
+        const text = data.slice(idx, nextOpen);
+        if (state.current) {
+            state.current.content += text;
+        } else {
+            state.plain += text;
+        }
+
+        if (openMatch) {
+            const name = openMatch[1];
+            const seg = { name, content: '', inTag: true, expanded: true, userToggled: false, sawClose: false };
+            state.segments.push(seg);
+            state.current = seg;
+        } else if (closeMatch) {
+            const name = closeMatch[1];
+            if (state.current && state.current.name === name) {
+                state.current.inTag = false;
+                state.current.sawClose = true;
+                if (!state.current.userToggled) {
+                    state.current.expanded = false;
+                }
+                state.current = null;
+            }
+        }
+
+        idx = nextClose + 1;
+    }
+
+    const remaining = data.slice(idx);
+
+    if (flush) {
+        if (state.current) {
+            state.current.content += remaining;
+            if (!state.current.userToggled) {
+                state.current.expanded = false;
+            }
+            state.current.inTag = false;
+            state.current.sawClose = true;
+            state.current = null;
+        } else {
+            state.plain += remaining;
+        }
+        state.buffer = '';
+        return state;
+    }
+
+    // keep larger tail for partial tags to handle longer tag names
+    const tailKeep = 64; // Increased from 16 to handle longer tag names
+    const safeLen = Math.max(remaining.length - tailKeep, 0);
+    const consumable = remaining.slice(0, safeLen);
+    const leftover = remaining.slice(safeLen);
+    if (consumable) {
+        if (state.current) {
+            state.current.content += consumable;
+        } else {
+            state.plain += consumable;
+        }
+    }
+    state.buffer = leftover;
+    return state;
+}
+
+function renderTags(contentDiv, state) {
+    contentDiv.innerHTML = '';
+
+    const mainBlock = document.createElement('div');
+    mainBlock.className = 'main-text';
+    mainBlock.textContent = state.plain;
+    contentDiv.appendChild(mainBlock);
+
+    state.segments.forEach((seg) => {
+        const block = document.createElement('div');
+        block.className = 'think-block';
+        const forceExpanded = seg.inTag;
+        const isExpanded = forceExpanded || seg.expanded;
+        if (isExpanded) block.classList.add('expanded');
+
+        const label = document.createElement('div');
+        label.className = 'think-label';
+        label.textContent = seg.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+        const body = document.createElement('div');
+        body.className = 'think-body';
+        const trailing = seg.inTag ? ' …' : '';
+        body.textContent = seg.content + trailing;
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'think-toggle';
+        toggle.textContent = isExpanded ? 'Hide' : 'Expand';
+        toggle.disabled = forceExpanded;
+        toggle.onclick = () => {
+            seg.userToggled = true;
+            seg.expanded = !isExpanded;
+            renderTags(contentDiv, state);
+        };
+
+        block.appendChild(label);
+        block.appendChild(body);
+        block.appendChild(toggle);
+        contentDiv.appendChild(block);
+    });
+}
 
 // Auto-resize textarea
 userInput.addEventListener('input', () => {
@@ -59,7 +186,13 @@ function addMessage(role, content = '') {
     
     const contentDiv = document.createElement('div');
     contentDiv.className = 'content';
-    contentDiv.textContent = content;
+    if (role === 'assistant') {
+        const state = createTagState();
+        processTagChunk(state, content, true);
+        renderTags(contentDiv, state);
+    } else {
+        contentDiv.textContent = content;
+    }
     
     msgDiv.appendChild(contentDiv);
 
@@ -104,6 +237,7 @@ async function sendMessage() {
 
     const model = modelSelect.value;
     const remember = rememberCheck.checked;
+    const streamOnly = streamToggle.checked;
 
     // Add user message to UI
     addMessage('user', text);
@@ -121,7 +255,8 @@ async function sendMessage() {
             body: JSON.stringify({
                 model: model,
                 messages: [{ role: 'user', content: text }],
-                remember: remember
+                remember: remember,
+                stream_only: streamOnly
             })
         });
 
@@ -130,19 +265,25 @@ async function sendMessage() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         const assistantContentDiv = addMessage('assistant', '');
-        statusText.textContent = 'Weaving...';
+        const tagState = createTagState();
+        statusText.textContent = streamOnly ? 'Streaming...' : 'Weaving...';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             
             const chunk = decoder.decode(value, { stream: true });
-            assistantContentDiv.textContent += chunk;
+            processTagChunk(tagState, chunk, false);
+            renderTags(assistantContentDiv, tagState);
             
             // Scroll to bottom as content grows
             const main = document.querySelector('main');
             main.scrollTop = main.scrollHeight;
         }
+
+        // Flush any buffered partial tokens
+        processTagChunk(tagState, '', true);
+        renderTags(assistantContentDiv, tagState);
 
         statusText.textContent = 'Ready';
     } catch (error) {
