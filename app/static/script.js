@@ -29,7 +29,26 @@ if (!toolModal) {
     document.body.appendChild(toolModal);
 }
 
-toolsBtn && toolsBtn.addEventListener('click', async () => {
+// Create overlay
+let modalOverlay = document.getElementById('modal-overlay');
+if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modal-overlay';
+    modalOverlay.className = 'hidden';
+    document.body.appendChild(modalOverlay);
+}
+
+// Floating tools button (always visible)
+let toolsFloat = document.getElementById('tools-float');
+if (!toolsFloat) {
+    toolsFloat = document.createElement('button');
+    toolsFloat.id = 'tools-float';
+    toolsFloat.title = 'Tools';
+    toolsFloat.innerHTML = '⚙️';
+    document.body.appendChild(toolsFloat);
+}
+
+const openSidebar = async () => {
     if (!sidebar.classList.contains('hidden')) {
         sidebar.classList.add('hidden');
         return;
@@ -71,14 +90,18 @@ toolsBtn && toolsBtn.addEventListener('click', async () => {
         sidebar.innerHTML = '<div>Error loading tools</div>';
         console.error(e);
     }
-});
+}
+
+toolsBtn && toolsBtn.addEventListener('click', openSidebar);
+toolsFloat && toolsFloat.addEventListener('click', openSidebar);
 
 function openToolModal(serverName, toolName, cfg) {
     toolModal.innerHTML = '';
     toolModal.classList.remove('hidden');
+    modalOverlay.classList.remove('hidden');
     const title = document.createElement('div');
     title.style.fontWeight = '700';
-    title.textContent = `${serverName} · ${toolName}`;
+    title.innerHTML = `<h3>${serverName} &middot; ${toolName}</h3>`;
     toolModal.appendChild(title);
 
     const argsLabel = document.createElement('div');
@@ -91,6 +114,21 @@ function openToolModal(serverName, toolName, cfg) {
     textarea.style.height = '120px';
     textarea.placeholder = '{}';
     toolModal.appendChild(textarea);
+
+    // Quick templates
+    const quick = document.createElement('div');
+    quick.className = 'modal-row';
+    const sample = document.createElement('button');
+    sample.className = 'modal-copy';
+    sample.textContent = 'Insert {}';
+    sample.onclick = () => { textarea.value = '{}'; };
+    quick.appendChild(sample);
+    const sample2 = document.createElement('button');
+    sample2.className = 'modal-copy';
+    sample2.textContent = 'Insert {"path":"./"}';
+    sample2.onclick = () => { textarea.value = '{"path":"./"}'; };
+    quick.appendChild(sample2);
+    toolModal.appendChild(quick);
 
     const actions = document.createElement('div');
     actions.className = 'modal-actions';
@@ -113,12 +151,27 @@ function openToolModal(serverName, toolName, cfg) {
             out.style.marginTop = '0.6rem';
             toolModal.appendChild(out);
 
+            const copyOut = document.createElement('button');
+            copyOut.className = 'modal-copy';
+            copyOut.textContent = 'Copy';
+            copyOut.onclick = async () => {
+                await navigator.clipboard.writeText(JSON.stringify(res, null, 2));
+                copyOut.textContent = 'Copied';
+            };
+            toolModal.appendChild(copyOut);
+
             const insertBtn = document.createElement('button');
             insertBtn.textContent = 'Insert into chat';
             insertBtn.className = 'tool-btn';
             insertBtn.onclick = () => {
-                addMessage('assistant', JSON.stringify(res, null, 2));
+                // Attempt to insert human-friendly text if available
+                let content = '';
+                if (res && res.result && typeof res.result === 'string') content = res.result;
+                else if (res && res.content) content = (Array.isArray(res.content) ? res.content.map(c=>c.text||c).join('\n') : JSON.stringify(res));
+                else content = JSON.stringify(res, null, 2);
+                addMessage('assistant', content);
                 toolModal.classList.add('hidden');
+                modalOverlay.classList.add('hidden');
             };
 
             const seedBtn = document.createElement('button');
@@ -132,7 +185,7 @@ function openToolModal(serverName, toolName, cfg) {
             const closeBtn = document.createElement('button');
             closeBtn.textContent = 'Close';
             closeBtn.className = 'tool-btn';
-            closeBtn.onclick = () => toolModal.classList.add('hidden');
+            closeBtn.onclick = () => { toolModal.classList.add('hidden'); modalOverlay.classList.add('hidden'); };
 
             const extras = document.createElement('div');
             extras.className = 'modal-actions';
@@ -150,7 +203,7 @@ function openToolModal(serverName, toolName, cfg) {
     const cancelBtn = document.createElement('button');
     cancelBtn.textContent = 'Cancel';
     cancelBtn.className = 'tool-btn';
-    cancelBtn.onclick = () => toolModal.classList.add('hidden');
+    cancelBtn.onclick = () => { toolModal.classList.add('hidden'); modalOverlay.classList.add('hidden'); };
 
     actions.appendChild(callBtn);
     actions.appendChild(cancelBtn);

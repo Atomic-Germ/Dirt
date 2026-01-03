@@ -1,6 +1,6 @@
 [project]
 name = "dirt"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pluggable Chat and MCP Client System with Environment Variables and STDIO Compatibility"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,6 +20,7 @@ include = [
     "README.md",
     "LICENSE",
     "mcp_config.json",
+    "bridge_memory.json",
     "heritage_context.json"
 ]
 
@@ -27,7 +28,7 @@ include = [
 packages = ["app"]
 
 [tool.hatch.build.targets.sdist]
-include = ["app", "README.md", "LICENSE", "mcp_config.json", "heritage_context.json"]
+include = ["app", "README.md", "LICENSE", "mcp_config.json", "bridge_memory.json", "heritage_context.json"]
 
 [build-system]
 requires = ["hatchling"]

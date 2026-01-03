@@ -10,6 +10,11 @@ from pydantic import BaseModel, field_validator
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
 from ollama import Client
+# ResponseError may be raised by the underlying ollama client when a model runner crashes
+try:
+    from ollama._types import ResponseError
+except Exception:  # pragma: no cover - best-effort import for different ollama sdk shapes
+    ResponseError = None
 
 # Robust import handling for both package and direct execution
 def _import_mcp_client():
@@ -36,6 +41,42 @@ initialize_mcp_client, get_mcp_client = _import_mcp_client()
 ollama_host = os.environ.get('OLLAMA_HOST', 'http://127.0.0.1:11434')
 print(f"Connecting to Ollama at: {ollama_host}")
 client = Client(host=ollama_host)
+import datetime
+
+
+def log_ollama_response_error(exc, model_name: str | None = None, request_info: dict | None = None) -> None:
+    """Append structured information about an Ollama ResponseError to `ollama_errors.log`.
+
+    This will attempt to extract `response.status_code` and `response.text` from
+    the exception when available and write a JSON line for later inspection.
+    """
+    info = {
+        "time": datetime.datetime.utcnow().isoformat() + "Z",
+        "error_type": exc.__class__.__name__,
+        "error_str": str(exc),
+    }
+    try:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            info["status_code"] = getattr(resp, "status_code", None)
+            try:
+                # `.text` may be large; include it for debugging
+                info["response_text"] = getattr(resp, "text", None)
+            except Exception:
+                info["response_text"] = "<unreadable>"
+    except Exception:
+        pass
+
+    if model_name:
+        info["model"] = model_name
+    if request_info:
+        info["request"] = request_info
+
+    try:
+        with open("ollama_errors.log", "a", encoding="utf-8") as f:
+            f.write(json.dumps(info, ensure_ascii=False) + "\n")
+    except Exception:
+        logging.exception("Failed to write ollama error log")
 
 
 @asynccontextmanager
@@ -273,18 +314,38 @@ async def chat(request: ChatRequest):
                         else:
                             raise
 
-                    for part in stream:
-                        msg = part.get("message", {})
-                        delta = msg.get("content", "") or part.get("response", "") or ""
-                        if delta:
-                            hop_content += delta
-                            content_total += delta
-                            yield delta
+                    try:
+                        for part in stream:
+                            msg = part.get("message", {})
+                            delta = msg.get("content", "") or part.get("response", "") or ""
+                            if delta:
+                                hop_content += delta
+                                content_total += delta
+                                yield delta
 
-                        last_message = msg
-                        tool_calls = msg.get("tool_calls", []) or []
-                        if tool_calls:
-                            break  # pause to execute tools
+                            last_message = msg
+                            tool_calls = msg.get("tool_calls", []) or []
+                            if tool_calls:
+                                break  # pause to execute tools
+
+                    except Exception as e:
+                        # If the ollama client signals the model runner crashed, emit a readable marker
+                        is_response_error = ResponseError is not None and isinstance(e, ResponseError)
+                        if not is_response_error and e.__class__.__name__ == 'ResponseError':
+                            is_response_error = True
+
+                        if is_response_error:
+                            # Log structured details for later inspection
+                            try:
+                                log_ollama_response_error(e, model_name=request.model, request_info={"messages_count": len(full_messages)})
+                            except Exception:
+                                logging.exception("Failed to write structured ollama error log")
+
+                            err_text = f"\n[model runner error: {str(e)}]\n"
+                            yield err_text
+                            content_total += err_text
+                            break
+                        raise
 
                     # Record assistant hop content before tool execution
                     full_messages.append({"role": "assistant", "content": hop_content})
@@ -414,6 +475,36 @@ async def get_models():
             return model_names
         except:
             return ["kimi-k2-thinking:cloud", "lucasmg/gemma3-12b-tool-thinking-true:latest"]
+
+
+@app.get("/debug/ollama-errors")
+async def get_ollama_errors(lines: int = 20):
+    """Return the last N structured Ollama error log entries (JSON lines).
+
+    `lines` controls how many most-recent entries to return (default 20).
+    If the log contains non-JSON lines they are returned as `{"raw": "..."}` entries.
+    """
+    log_path = "ollama_errors.log"
+    if not os.path.exists(log_path):
+        return []
+
+    entries = []
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    entries.append(json.loads(ln))
+                except Exception:
+                    entries.append({"raw": ln})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read ollama error log: {e}")
+
+    if lines <= 0:
+        return entries
+    return entries[-lines:]
 
 # MCP Server Management Endpoints
 

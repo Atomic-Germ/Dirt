@@ -1,5 +1,12 @@
 {
   "servers": {
+    "ollama_orchestrator": {
+      "command": "ollama",
+      "args": ["run", "erukude/multiagent-orchestrator:3b"],
+      "env": {},
+      "node_modules_path": null,
+      "tools": []
+    },
     "ollama-consult": {
       "command": "mcp-ollama-consult",
       "args": [],
@@ -8,7 +15,8 @@
         "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/",
         "MCP_AUTO_MODEL_SETTINGS": "1"
       },
-      "node_modules_path": null
+      "node_modules_path": null,
+      "tools": ["consult", "analyze"]
     },
     "dream-weaver": {
       "command": "dream-weaver",
@@ -17,7 +25,8 @@
         "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
         "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/"
       },
-      "node_modules_path": null
+      "node_modules_path": null,
+      "tools": ["weave", "status"]
     },
     "creative-meditate": {
       "command": "creative-meditate",
@@ -27,7 +36,8 @@
         "OLLAMA_BASE_URL": "http://0.0.0.0:11434",
         "DEFAULT_EMBEDDING_MODEL": "qwen3-embedding:8b"
       },
-      "node_modules_path": null
+      "node_modules_path": null,
+      "tools": ["meditate", "seed"]
     },
     "resonance-engine": {
       "command": "resonance-engine",
@@ -36,7 +46,8 @@
         "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
         "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/"
       },
-      "node_modules_path": null
+      "node_modules_path": null,
+      "tools": ["detect", "observe"]
     },
     "mcp-bridge": {
       "command": "mcp-bridge",
@@ -45,7 +56,8 @@
         "MEMORY_DIR": "/home/atomic-germ/.mcp-group/",
         "KNOWLEDGE_BASE_PATH": "/home/atomic-germ/.mcp-group/"
       },
-      "node_modules_path": null
+      "node_modules_path": null,
+      "tools": ["bridge", "sync"]
     }
   }
 }
