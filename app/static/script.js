@@ -9,6 +9,153 @@ const streamToggle = document.getElementById('stream-toggle');
 const dreamBtn = document.getElementById('dream-btn');
 const dreamPath = document.getElementById('dream-path');
 const dreamSeed = document.getElementById('dream-seed');
+const toolsBtn = document.getElementById('tools-btn');
+
+// Create sidebar container
+let sidebar = document.getElementById('sidebar');
+if (!sidebar) {
+    sidebar = document.createElement('div');
+    sidebar.id = 'sidebar';
+    sidebar.className = 'hidden';
+    document.body.appendChild(sidebar);
+}
+
+// Create modal container
+let toolModal = document.getElementById('tool-modal');
+if (!toolModal) {
+    toolModal = document.createElement('div');
+    toolModal.id = 'tool-modal';
+    toolModal.className = 'hidden';
+    document.body.appendChild(toolModal);
+}
+
+toolsBtn && toolsBtn.addEventListener('click', async () => {
+    if (!sidebar.classList.contains('hidden')) {
+        sidebar.classList.add('hidden');
+        return;
+    }
+    sidebar.innerHTML = '<div style="font-weight:600;margin-bottom:8px">MCP Tools</div>';
+    sidebar.classList.remove('hidden');
+    try {
+        const resp = await fetch('/mcp/servers');
+        const data = await resp.json();
+        const configured = data.configured || [];
+        for (const name of configured) {
+            const cfgResp = await fetch(`/mcp/servers/${encodeURIComponent(name)}/config`);
+            const cfg = await cfgResp.json();
+            const panel = document.createElement('div');
+            panel.className = 'panel';
+            const title = document.createElement('h4');
+            title.textContent = name;
+            panel.appendChild(title);
+            const tools = cfg.tools || [];
+            const list = document.createElement('div');
+            list.className = 'tool-list';
+            if (tools.length === 0) {
+                const none = document.createElement('div');
+                none.textContent = 'No tools discovered';
+                none.style.opacity = 0.6;
+                list.appendChild(none);
+            }
+            for (const t of tools) {
+                const btn = document.createElement('button');
+                btn.className = 'tool-btn';
+                btn.textContent = t;
+                btn.onclick = () => openToolModal(name, t, cfg);
+                list.appendChild(btn);
+            }
+            panel.appendChild(list);
+            sidebar.appendChild(panel);
+        }
+    } catch (e) {
+        sidebar.innerHTML = '<div>Error loading tools</div>';
+        console.error(e);
+    }
+});
+
+function openToolModal(serverName, toolName, cfg) {
+    toolModal.innerHTML = '';
+    toolModal.classList.remove('hidden');
+    const title = document.createElement('div');
+    title.style.fontWeight = '700';
+    title.textContent = `${serverName} · ${toolName}`;
+    toolModal.appendChild(title);
+
+    const argsLabel = document.createElement('div');
+    argsLabel.style.marginTop = '0.6rem';
+    argsLabel.textContent = 'Arguments (JSON)';
+    toolModal.appendChild(argsLabel);
+
+    const textarea = document.createElement('textarea');
+    textarea.style.width = '100%';
+    textarea.style.height = '120px';
+    textarea.placeholder = '{}';
+    toolModal.appendChild(textarea);
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+
+    const callBtn = document.createElement('button');
+    callBtn.textContent = 'Call Tool';
+    callBtn.className = 'tool-btn';
+    callBtn.onclick = async () => {
+        let args = {};
+        try { args = JSON.parse(textarea.value || '{}'); } catch (e) { alert('Invalid JSON'); return; }
+        callBtn.disabled = true;
+        try {
+            const resp = await fetch('/mcp/tools/call', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ server_name: serverName, tool_name: toolName, arguments: args })
+            });
+            const res = await resp.json();
+            const out = document.createElement('pre');
+            out.textContent = JSON.stringify(res, null, 2);
+            out.style.marginTop = '0.6rem';
+            toolModal.appendChild(out);
+
+            const insertBtn = document.createElement('button');
+            insertBtn.textContent = 'Insert into chat';
+            insertBtn.className = 'tool-btn';
+            insertBtn.onclick = () => {
+                addMessage('assistant', JSON.stringify(res, null, 2));
+                toolModal.classList.add('hidden');
+            };
+
+            const seedBtn = document.createElement('button');
+            seedBtn.textContent = 'Save to memory';
+            seedBtn.className = 'tool-btn';
+            seedBtn.onclick = async () => {
+                await fetch('/seed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ content: JSON.stringify(res), tags: ['tool'] }) });
+                seedBtn.textContent = 'Saved'; seedBtn.disabled = true;
+            };
+
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'Close';
+            closeBtn.className = 'tool-btn';
+            closeBtn.onclick = () => toolModal.classList.add('hidden');
+
+            const extras = document.createElement('div');
+            extras.className = 'modal-actions';
+            extras.appendChild(insertBtn);
+            extras.appendChild(seedBtn);
+            extras.appendChild(closeBtn);
+            toolModal.appendChild(extras);
+
+        } catch (e) {
+            alert('Tool call failed');
+            console.error(e);
+        } finally { callBtn.disabled = false; }
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.className = 'tool-btn';
+    cancelBtn.onclick = () => toolModal.classList.add('hidden');
+
+    actions.appendChild(callBtn);
+    actions.appendChild(cancelBtn);
+    toolModal.appendChild(actions);
+}
 
 let isTyping = false;
 

@@ -12,6 +12,7 @@ def make_fake_client():
                 'test-server': {
                     'name': 'test-server',
                     'command': 'echo',
+                    'tools': ['echo', 'list_foo']
                 }
             }
             self.active_processes = {}
@@ -28,7 +29,7 @@ def make_fake_client():
         def get_server_config(self, name):
             cfg = self.servers.get(name)
             if cfg:
-                return SimpleNamespace(name=cfg['name'], command=cfg['command'], args=[], env={}, node_modules_path=None, tools=[])
+                return SimpleNamespace(name=cfg['name'], command=cfg['command'], args=[], env={}, node_modules_path=None, tools=cfg.get('tools', []))
             return None
 
         def shutdown(self):
