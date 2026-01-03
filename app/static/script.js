@@ -354,7 +354,11 @@ function renderPossiblyJson(container, text) {
             const pre = document.createElement('pre');
             pre.textContent = JSON.stringify(parsed, null, 2);
             pre.className = 'json-block';
-            container.appendChild(pre);
+                    container.appendChild(pre);
+                    // Apply syntax highlighting if available
+                    if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+                        try { window.hljs.highlightElement(pre); } catch (e) { /* ignore */ }
+                    }
             return;
         }
     } catch (e) {
@@ -379,6 +383,9 @@ function renderPossiblyJson(container, text) {
             pre.textContent = JSON.stringify(parsed, null, 2);
             pre.className = 'json-block';
             container.appendChild(pre);
+            if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+                try { window.hljs.highlightElement(pre); } catch (e) { /* ignore */ }
+            }
             if (after) {
                 const p2 = document.createElement('div');
                 p2.textContent = after;
